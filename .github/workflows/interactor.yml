@@ -1,0 +1,50 @@
+# The interactor contract, built and held to its own claim.
+#
+# `thirdparty/interactor/CMakeLists.txt` says "weft::interactor links nothing, and that is
+# the test. If a socket library or a QUIC implementation ever appears below, the boundary
+# this repository exists to hold has gone, and the linker is a better place to find that out
+# than a review is." That was true and nothing checked it, because this repository had no
+# workflow at all -- so a pull request could not go green, and could not be promoted out of
+# draft either.
+#
+# The MuJoCo side is not built here. There is no CMakeLists at the repository root and
+# cross-compiling MuJoCo for riscv64 is unstarted, which the README already says. A workflow
+# that pretended otherwise would be the failure this project keeps writing down: a check
+# that reports success while proving nothing.
+name: interactor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the contract and its proof
+        run: |
+          cmake -S thirdparty/interactor -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+
+      - name: Run the roundtrip proof
+        run: ctest --test-dir build --output-on-failure
+
+      - name: The contract must link nothing but libc string handling
+        run: |
+          # An undefined symbol is something this library expects somebody else to provide.
+          # Today that list is strlen and nothing more. A socket, a TLS library or a QUIC
+          # implementation appearing here means the boundary went, and this is where it is
+          # cheapest to find out.
+          undef=$(nm -u --format=posix build/libweft_interactor.a \
+                  | awk '{print $1}' | grep -v '^$' | sed 's/^_//' | sort -u)
+          echo "undefined symbols:"; echo "$undef" | sed 's/^/  /'
+          allowed='^(strlen|memcpy|memset|memcmp|strncmp)$'
+          if bad=$(echo "$undef" | grep -Ev "$allowed" | grep -v '^$'); then
+            echo "::error::the interactor contract now depends on symbols outside libc string handling:"
+            echo "$bad" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "the boundary holds"
