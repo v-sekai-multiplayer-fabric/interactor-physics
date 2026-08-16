@@ -38,8 +38,11 @@ jobs:
           # Today that list is strlen and nothing more. A socket, a TLS library or a QUIC
           # implementation appearing here means the boundary went, and this is where it is
           # cheapest to find out.
+          # nm prints an "archive.a[member.o]:" header before each member's symbols, and
+          # that line is not a symbol. Dropping it is the difference between this step
+          # measuring the boundary and measuring nm's output format.
           undef=$(nm -u --format=posix build/libweft_interactor.a \
-                  | awk '{print $1}' | grep -v '^$' | sed 's/^_//' | sort -u)
+                  | awk '{print $1}' | grep -v '^$' | grep -v ':$' | sed 's/^_//' | sort -u)
           echo "undefined symbols:"; echo "$undef" | sed 's/^/  /'
           allowed='^(strlen|memcpy|memset|memcmp|strncmp)$'
           if bad=$(echo "$undef" | grep -Ev "$allowed" | grep -v '^$'); then
